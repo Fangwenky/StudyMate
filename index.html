@@ -438,6 +438,20 @@
             <p>你的私人 AI 学习陪练</p>
         </header>
 
+        <!-- API Settings -->
+        <div style="background: var(--card-bg); border-radius: 12px; padding: 15px; margin-bottom: 20px; border: 1px solid var(--border);">
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <span style="color: var(--text-muted);">⚙️ API:</span>
+                <select id="apiProvider" style="padding: 8px; border-radius: 6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
+                    <option value="minimax">MiniMax</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="deepseek">DeepSeek</option>
+                </select>
+                <input type="password" id="apiKey" placeholder="API Key" style="padding: 8px; border-radius: 6px; background: var(--bg); color: var(--text); border: 1px solid var(--border); width: 200px;">
+                <button onclick="saveApiConfig()" style="padding: 8px 16px; border-radius: 6px; background: var(--primary); color: white; border: none; cursor: pointer;">保存</button>
+            </div>
+        </div>
+
         <!-- Stats -->
         <div class="stats-bar">
             <div class="stat-item">
@@ -667,14 +681,71 @@
                 return;
             }
 
-            // Generate sample questions (in real app, this would call an AI API)
-            questions = generateSampleQuestions(topic, material, questionType, count);
-            currentQuestionIndex = 0;
-            correctCount = 0;
+            // Check if API is configured
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            
+            if (isLocal && apiConfig.key) {
+                // Use AI to generate questions
+                generateQuestionsWithAI(topic, material, questionType, count);
+            } else {
+                // Use sample questions
+                questions = generateSampleQuestions(topic, material, questionType, count);
+                currentQuestionIndex = 0;
+                correctCount = 0;
+                document.getElementById('quizSection').classList.add('active');
+                document.getElementById('quizResults').style.display = 'none';
+                renderQuestion();
+            }
+        }
 
-            document.getElementById('quizSection').classList.add('active');
-            document.getElementById('quizResults').style.display = 'none';
-            renderQuestion();
+        async function generateQuestionsWithAI(topic, material, type, count) {
+            const prompt = `你是一个出题专家。请根据以下信息生成${count}道练习题。
+
+学习主题：${topic}
+学习材料：${material || '无'}
+题目类型：${type === 'mixed' ? '选择题和判断题' : type}
+
+请生成JSON格式的题目，每个题目包含：
+- q: 问题内容
+- options: 4个选项（A、B、C、D）
+- correct: 正确答案的索引（0-3）
+
+只返回JSON数组，不要其他内容。`;
+
+            try {
+                const response = await fetch('http://localhost:8082/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        _apiKey: apiConfig.key,
+                        _provider: apiConfig.provider,
+                        _model: 'gpt-4o-mini',
+                        messages: [
+                            { role: 'system', content: '你是一个出题专家，擅长生成各种练习题。' },
+                            { role: 'user', content: prompt }
+                        ],
+                        temperature: 0.7
+                    })
+                });
+                
+                const data = await response.json();
+                const content = data.choices[0].message.content;
+                questions = JSON.parse(content);
+                currentQuestionIndex = 0;
+                correctCount = 0;
+                document.getElementById('quizSection').classList.add('active');
+                document.getElementById('quizResults').style.display = 'none';
+                renderQuestion();
+            } catch (e) {
+                alert('生成题目失败: ' + e.message + '\n\n请检查API配置是否正确');
+                // Fallback to sample
+                questions = generateSampleQuestions(topic, material, type, count);
+                currentQuestionIndex = 0;
+                correctCount = 0;
+                document.getElementById('quizSection').classList.add('active');
+                document.getElementById('quizResults').style.display = 'none';
+                renderQuestion();
+            }
         }
 
         function generateSampleQuestions(topic, material, type, count) {
@@ -907,6 +978,26 @@
 
         // Initialize
         init();
+        
+        // API Config
+        let apiConfig = {
+            provider: localStorage.getItem('studyMateProvider') || 'minimax',
+            key: localStorage.getItem('studyMateApiKey') || ''
+        };
+
+        function saveApiConfig() {
+            apiConfig.provider = document.getElementById('apiProvider').value;
+            apiConfig.key = document.getElementById('apiKey').value;
+            localStorage.setItem('studyMateProvider', apiConfig.provider);
+            localStorage.setItem('studyMateApiKey', apiConfig.key);
+            alert('API配置已保存！');
+        }
+        
+        // Load API config
+        if(document.getElementById('apiProvider')) {
+            document.getElementById('apiProvider').value = apiConfig.provider;
+            document.getElementById('apiKey').value = apiConfig.key;
+        }
     </script>
 </body>
 </html>
